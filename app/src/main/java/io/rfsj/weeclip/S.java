@@ -1,0 +1,31 @@
+package io.rfsj.weeclip;
+
+import android.app.Activity;
+import android.content.Context;
+import android.content.Intent;
+import android.os.Bundle;
+import android.widget.Toast;
+
+/** Share target. No UI: saves the link, kicks off the metadata fetch, and finishes. */
+public class S extends Activity {
+    @Override protected void onCreate(Bundle b) {
+        super.onCreate(b);
+        Context c = getApplicationContext();
+        Intent i = getIntent();
+        String u = F.url(i.getStringExtra(Intent.EXTRA_TEXT));
+        String msg;
+        if (u == null) {
+            msg = "No link found";
+        } else {
+            String g = i.getStringExtra("android.intent.extra.shortcut.ID");
+            String name = g == null || g.isEmpty() ? null : D.groupName(c, g);
+            if (name == null) g = "";
+            boolean added = D.add(c, g, u);
+            msg = (added ? "Saved" : "Already saved") + (name == null ? "" : " to " + name);
+            new Thread(() -> F.pending(c)).start();
+            J.schedule(c);
+        }
+        Toast.makeText(c, msg, Toast.LENGTH_SHORT).show();
+        finish();
+    }
+}
