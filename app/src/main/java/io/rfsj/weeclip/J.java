@@ -10,17 +10,27 @@ import android.content.Context;
 /** Backup for metadata fetching: runs once a network is available, in case the share-time thread got killed. */
 public class J extends JobService {
     static void schedule(Context c) {
-        JobScheduler js = c.getSystemService(JobScheduler.class);
-        if (js == null) return;
-        js.schedule(new JobInfo.Builder(1, new ComponentName(c, J.class))
-                .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY)
-                .build());
+        try {
+            JobScheduler js = c.getSystemService(JobScheduler.class);
+            if (js == null) return;
+            js.schedule(new JobInfo.Builder(1, new ComponentName(c, J.class))
+                    .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY)
+                    .build());
+        } catch (Throwable t) {
+            // the share-time fetch and the next app start still retry
+        }
     }
 
     @Override public boolean onStartJob(JobParameters p) {
         new Thread(() -> {
-            F.pending(getApplicationContext());
-            jobFinished(p, D.hasPending(getApplicationContext()));
+            boolean again = true;
+            try {
+                F.pending(getApplicationContext());
+                again = D.hasPending(getApplicationContext());
+            } catch (Throwable t) {
+                // retry later
+            }
+            jobFinished(p, again);
         }).start();
         return true;
     }

@@ -10,6 +10,9 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.json.JSONObject;
@@ -22,6 +25,18 @@ final class F {
     static final Pattern META = Pattern.compile("<meta\\s[^>]*>", Pattern.CASE_INSENSITIVE);
     static final Pattern TITLE = Pattern.compile("<title[^>]*>(.*?)</title>", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
     static final Set<String> busy = new HashSet<>();
+    static final ExecutorService EX = Executors.newSingleThreadExecutor();
+    static final AtomicBoolean queued = new AtomicBoolean();
+
+    /** Fetch metadata in the background on one worker. Calls made while a run is still waiting are merged. */
+    static void go(Context c) {
+        if (!queued.compareAndSet(false, true)) return;
+        final Context a = c.getApplicationContext();
+        EX.execute(() -> {
+            queued.set(false);
+            try { pending(a); } catch (Throwable t) { /* never take the app down from a background fetch */ }
+        });
+    }
 
     static String host(String url) {
         String h = Uri.parse(url).getHost();

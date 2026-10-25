@@ -14,16 +14,20 @@ public class S extends Activity {
         Intent i = getIntent();
         String u = F.url(i.getStringExtra(Intent.EXTRA_TEXT));
         String msg;
-        if (u == null) {
-            msg = "No link found";
-        } else {
-            String g = i.getStringExtra("android.intent.extra.shortcut.ID");
-            String name = g == null || g.isEmpty() ? null : D.groupName(c, g);
-            if (name == null) g = "";
-            boolean added = D.add(c, g, u);
-            msg = (added ? "Saved" : "Already saved") + (name == null ? "" : " to " + name);
-            new Thread(() -> F.pending(c)).start();
-            J.schedule(c);
+        try {
+            if (u == null) {
+                msg = "No link found";
+            } else {
+                String g = i.getStringExtra("android.intent.extra.shortcut.ID");
+                String name = g == null || g.isEmpty() ? null : D.groupName(c, g);
+                if (name == null) g = "";
+                boolean added = D.add(c, g, u);
+                msg = (added ? "Saved" : "Already saved") + (name == null ? "" : " to " + name);
+                F.go(c);
+                J.schedule(c);
+            }
+        } catch (Throwable t) {
+            msg = "Couldn't save";
         }
         Toast.makeText(c, msg, Toast.LENGTH_SHORT).show();
         finish();

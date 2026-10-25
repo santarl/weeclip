@@ -117,7 +117,7 @@ public class M extends Activity {
         super.onResume();
         D.ui = () -> runOnUiThread(this::refresh);
         refresh();
-        new Thread(() -> F.pending(getApplicationContext())).start();
+        F.go(this);
     }
 
     @Override protected void onPause() {
