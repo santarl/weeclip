@@ -150,6 +150,7 @@ final class D {
             g.name = clean(name);
             l.add(g);
             storeGroups(c, l);
+            orderFront(c, g.id);
             return g;
         }
     }
@@ -209,6 +210,7 @@ final class D {
             w.chat = chat; w.name = clean(name);
             l.add(w);
             storeWas(c, l);
+            orderFront(c, w.id);
             return w;
         }
     }
@@ -224,6 +226,28 @@ final class D {
         synchronized (L) {
             List<Wa> l = was(c);
             for (Iterator<Wa> i = l.iterator(); i.hasNext();) if (i.next().id.equals(id)) { i.remove(); storeWas(c, l); return; }
+        }
+    }
+
+    // ---- share sheet order (order.tsv: shortcut ids, first = top) ----
+    static List<String> order(Context c) {
+        synchronized (L) {
+            List<String> l = new ArrayList<>();
+            for (String[] p : rows(c, "order.tsv", 1)) l.add(p[0]);
+            return l;
+        }
+    }
+
+    static void setOrder(Context c, List<String> ids) {
+        synchronized (L) { write(c, "order.tsv", ids); }
+    }
+
+    static void orderFront(Context c, String id) {
+        synchronized (L) {
+            List<String> o = order(c);
+            o.remove(id);
+            o.add(0, id);
+            setOrder(c, o);
         }
     }
 }

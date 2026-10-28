@@ -194,8 +194,10 @@ public class W extends Activity {
             String a = n.get(w);
             if (a.startsWith("Add")) {
                 D.waAdd(this, r.chat, r.title);
-                K.publish(this);
+                String err = K.publish(this);
                 refresh();
+                Toast.makeText(this, err != null ? "Couldn't publish: " + err
+                        : "Added at the top of the share sheet. Order: group picker > Share sheet order", Toast.LENGTH_LONG).show();
             } else if (a.startsWith("Contact")) {
                 settings(r);
             } else if (a.startsWith("Remove")) {

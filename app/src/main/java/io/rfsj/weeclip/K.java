@@ -1,5 +1,7 @@
 package io.rfsj.weeclip;
 
+import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ShortcutInfo;
@@ -11,34 +13,74 @@ import android.graphics.Paint;
 import android.graphics.Typeface;
 import android.graphics.drawable.Icon;
 import android.os.Build;
+import android.widget.Toast;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
-/** Publishes sharing shortcuts: one per group (save) and one per enabled WhatsApp contact (send). */
+/** Publishes sharing shortcuts: one per group (save) and one per enabled WhatsApp contact (send), in the user's order. */
 final class K {
     static final String CAT = "io.rfsj.weeclip.category.CLIP";
 
-    static void publish(Context c) {
+    /** Groups and WhatsApp contacts as {id, label, "g" or "w"}, in share sheet order. */
+    static List<String[]> entries(Context c) {
+        Map<String, String[]> m = new LinkedHashMap<>();
+        for (D.Grp g : D.groups(c)) m.put(g.id, new String[]{g.id, g.name, "g"});
+        for (D.Wa w : D.was(c)) m.put(w.id, new String[]{w.id, w.name, "w"});
+        List<String[]> l = new ArrayList<>();
+        for (String id : D.order(c)) {
+            String[] e = m.remove(id);
+            if (e != null) l.add(e);
+        }
+        l.addAll(m.values());
+        return l;
+    }
+
+    /** @return null on success, else the error text. */
+    static String publish(Context c) {
         try {
             ShortcutManager sm = c.getSystemService(ShortcutManager.class);
-            if (sm == null) return;
+            if (sm == null) return "no ShortcutManager";
             int max = sm.getMaxShortcutCountPerActivity();
             List<ShortcutInfo> l = new ArrayList<>();
-            for (D.Grp x : D.groups(c)) {
+            for (String[] e : entries(c)) {
                 if (l.size() >= max) break;
-                Intent it = new Intent(Intent.ACTION_MAIN).setClass(c, M.class).putExtra("g", x.id);
-                l.add(build(c, x.id, x.name, x.name, false, it, l.size()));
-            }
-            for (D.Wa x : D.was(c)) {
-                if (l.size() >= max) break;
-                Intent it = new Intent(Intent.ACTION_MAIN).setClass(c, W.class);
-                l.add(build(c, x.id, x.name, "WhatsApp: " + x.name, true, it, l.size()));
+                boolean wa = e[2].equals("w");
+                Intent it = new Intent(Intent.ACTION_MAIN).setClass(c, wa ? W.class : M.class);
+                if (!wa) it.putExtra("g", e[0]);
+                l.add(build(c, e[0], e[1], wa ? "WhatsApp: " + e[1] : e[1], wa, it, l.size()));
             }
             sm.setDynamicShortcuts(l);
+            return null;
         } catch (Exception e) {
-            // shortcuts are a nicety; the app still works without them
+            N.log("share sheet publish failed: " + e);
+            return String.valueOf(e);
         }
+    }
+
+    /** Tap an entry to move it to the top. Android only shows the first few (usually 3) per app. */
+    static void orderDialog(Activity a) {
+        List<String[]> e = entries(a);
+        if (e.isEmpty()) {
+            Toast.makeText(a, "No groups or contacts yet", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        String[] n = new String[e.size()];
+        for (int i = 0; i < n.length; i++) n[i] = (i + 1) + ".  " + e.get(i)[1] + (e.get(i)[2].equals("w") ? "  (WhatsApp)" : "");
+        new AlertDialog.Builder(a).setTitle("Share sheet order \u00B7 tap to move to top")
+                .setItems(n, (d, w) -> {
+                    List<String> o = new ArrayList<>();
+                    o.add(e.get(w)[0]);
+                    for (int i = 0; i < e.size(); i++) if (i != w) o.add(e.get(i)[0]);
+                    D.setOrder(a, o);
+                    String err = publish(a);
+                    if (err != null) Toast.makeText(a, "Couldn't publish: " + err, Toast.LENGTH_LONG).show();
+                    orderDialog(a);
+                })
+                .setNegativeButton("Done", null)
+                .show();
     }
 
     static ShortcutInfo build(Context c, String id, String label, String longLabel, boolean wa, Intent it, int rank) {
