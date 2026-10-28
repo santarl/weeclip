@@ -230,11 +230,13 @@ public class M extends Activity {
         n.add("Inbox");
         for (D.Grp g : grps) n.add(g.name);
         n.add("+ New group");
+        n.add("WhatsApp relay\u2026");
         new AlertDialog.Builder(this).setItems(n.toArray(new String[0]), (d, w) -> {
             if (w == 0) flt = null;
             else if (w == 1) flt = "";
             else if (w <= grps.size() + 1) flt = grps.get(w - 2).id;
-            else { newGroup(); return; }
+            else if (w == grps.size() + 2) { newGroup(); return; }
+            else { startActivity(new Intent(this, W.class)); return; }
             refresh();
         }).show();
     }
