@@ -35,6 +35,7 @@ public class N extends NotificationListenerService {
     static final Map<String, Cap> CAP = new ConcurrentHashMap<>();
     static final LinkedList<String> LOG = new LinkedList<>();
     static volatile boolean on;      // listener connected
+    static volatile boolean ready;   // connected and the initial scan is done, so the cache is authoritative
     static volatile Runnable ui;     // set by W while visible
 
     static void log(String s) {
@@ -55,10 +56,14 @@ public class N extends NotificationListenerService {
         } catch (Exception e) {
             log("initial scan failed: " + e);
         }
+        ready = true;
+        Runnable r = ui;
+        if (r != null) r.run();
     }
 
     @Override public void onListenerDisconnected() {
         on = false;
+        ready = false;
         log("listener disconnected, asking to rebind");
         try { requestRebind(new ComponentName(this, N.class)); } catch (Exception e) { log("rebind failed: " + e); }
     }

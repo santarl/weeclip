@@ -5,11 +5,13 @@ import android.app.AlertDialog;
 import android.content.Intent;
 import android.os.Bundle;
 import android.provider.Settings;
+import android.text.InputType;
 import android.text.format.DateUtils;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.BaseAdapter;
+import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
@@ -18,14 +20,21 @@ import android.widget.TextView;
 import android.widget.Toast;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
-/** Debug screen for the WhatsApp relay: shows captured chats and can send a test message. */
+/**
+ * WhatsApp relay screen: chats captured by the listener plus the ones enabled as share-sheet contacts.
+ * Tap a chat for actions, long-press for details.
+ */
 public class W extends Activity {
     static final int BG = 0xFF000000, FG = 0xFFFFFFFF, DIM = 0xFF9E9E9E, WARN = 0xFFFFB74D;
     static final int MP = ViewGroup.LayoutParams.MATCH_PARENT, WC = ViewGroup.LayoutParams.WRAP_CONTENT;
 
-    List<N.Cap> items = new ArrayList<>();
+    static final class R { String chat, title; N.Cap cap; D.Wa wa; }
+
+    List<R> items = new ArrayList<>();
     TextView status;
     BaseAdapter ad;
 
@@ -57,7 +66,7 @@ public class W extends Activity {
         log.setText("Log");
         log.setTextColor(DIM);
         log.setTextSize(16);
-        log.setPadding(dp(12), dp(6), dp(0), dp(6));
+        log.setPadding(dp(12), dp(6), 0, dp(6));
         log.setOnClickListener(v -> showLog());
         bar.addView(log);
         root.addView(bar, new LinearLayout.LayoutParams(MP, WC));
@@ -84,7 +93,6 @@ public class W extends Activity {
                     t.setTextColor(FG);
                     t.setTextSize(16);
                     TextView s = new TextView(W.this);
-                    s.setTextColor(DIM);
                     s.setTextSize(12);
                     r.addView(t);
                     r.addView(s);
@@ -92,24 +100,32 @@ public class W extends Activity {
                     v = r;
                 }
                 TextView[] tv = (TextView[]) v.getTag();
-                N.Cap k = items.get(i);
-                tv[0].setText(k.title);
-                tv[1].setText((k.dead ? "CANCELED \u00B7 " : "") + "captured "
-                        + DateUtils.getRelativeTimeSpanString(k.t, System.currentTimeMillis(), DateUtils.SECOND_IN_MILLIS,
-                        DateUtils.FORMAT_ABBREV_RELATIVE) + " \u00B7 notification " + (k.live ? "visible" : "gone")
-                        + " \u00B7 seen " + k.n + "x");
-                tv[1].setTextColor(k.dead ? WARN : DIM);
+                R r = items.get(i);
+                tv[0].setText(r.title);
+                StringBuilder s = new StringBuilder();
+                if (r.wa != null) s.append("IN SHARE SHEET \u00B7 ");
+                if (r.cap == null) {
+                    s.append("no live action");
+                } else {
+                    if (r.cap.dead) s.append("CANCELED \u00B7 ");
+                    s.append("captured ").append(DateUtils.getRelativeTimeSpanString(r.cap.t, System.currentTimeMillis(),
+                            DateUtils.SECOND_IN_MILLIS, DateUtils.FORMAT_ABBREV_RELATIVE))
+                            .append(" \u00B7 notification ").append(r.cap.live ? "visible" : "gone");
+                }
+                if (r.wa != null && r.wa.save) s.append(" \u00B7 also saves clip");
+                tv[1].setText(s);
+                tv[1].setTextColor((r.cap == null && r.wa != null) || (r.cap != null && r.cap.dead) ? WARN : DIM);
                 return v;
             }
         };
         ListView lv = new ListView(this);
         lv.setDivider(null);
         lv.setAdapter(ad);
-        lv.setOnItemClickListener((p, v, i, id) -> testDialog(items.get(i)));
+        lv.setOnItemClickListener((p, v, i, id) -> menu(items.get(i)));
         lv.setOnItemLongClickListener((p, v, i, id) -> { details(items.get(i)); return true; });
 
         TextView empty = new TextView(this);
-        empty.setText("No chats captured yet.\n\nTurn on notification access above, then receive a WhatsApp message. Chats with a visible notification are picked up right away.");
+        empty.setText("No chats captured yet.\n\nTurn on notification access above, then receive a WhatsApp message. Chats with a visible notification are picked up right away. Tap a chat to add it to the share sheet.");
         empty.setTextColor(DIM);
         empty.setGravity(Gravity.CENTER);
         empty.setPadding(dp(32), dp(32), dp(32), dp(32));
@@ -138,38 +154,133 @@ public class W extends Activity {
     }
 
     void refresh() {
-        List<N.Cap> l = new ArrayList<>(N.CAP.values());
-        Collections.sort(l, (a, b) -> Long.compare(b.t, a.t));
+        Map<String, R> m = new LinkedHashMap<>();
+        for (D.Wa w : D.was(this)) {
+            R r = new R();
+            r.chat = w.chat; r.title = w.name; r.wa = w;
+            m.put(w.chat, r);
+        }
+        for (N.Cap k : N.CAP.values()) {
+            R r = m.get(k.id);
+            if (r == null) { r = new R(); r.chat = k.id; r.title = k.title; m.put(k.id, r); }
+            r.cap = k;
+        }
+        List<R> l = new ArrayList<>(m.values());
+        Collections.sort(l, (a, b) -> {
+            if ((a.wa != null) != (b.wa != null)) return a.wa != null ? -1 : 1;
+            return Long.compare(b.cap == null ? 0 : b.cap.t, a.cap == null ? 0 : a.cap.t);
+        });
         items = l;
         boolean g = granted();
         status.setText(!g ? "Notification access is OFF \u00B7 tap to open settings"
-                : N.on ? "Notification access ON \u00B7 listener connected"
+                : N.ready ? "Notification access ON \u00B7 listener connected"
                 : "Notification access ON \u00B7 listener not connected yet (tap to open settings)");
-        status.setTextColor(g && N.on ? DIM : WARN);
+        status.setTextColor(g && N.ready ? DIM : WARN);
         ad.notifyDataSetChanged();
     }
 
-    void testDialog(N.Cap k) {
-        EditText e = new EditText(this);
-        e.setText("weeclip test");
-        e.setSelection(e.getText().length());
-        new AlertDialog.Builder(this).setTitle("Send to " + k.title).setView(e)
-                .setPositiveButton("Send", (d, w) -> {
-                    String r = N.send(getApplicationContext(), k.id, e.getText().toString());
-                    Toast.makeText(this, r, Toast.LENGTH_LONG).show();
+    // ---- actions ----
+    void menu(R r) {
+        List<String> n = new ArrayList<>();
+        if (r.wa == null) {
+            n.add("Add to share sheet");
+        } else {
+            n.add("Contact settings\u2026");
+            n.add("Remove from share sheet");
+        }
+        if (r.cap != null) n.add("Send test message");
+        n.add("Details");
+        new AlertDialog.Builder(this).setTitle(r.title).setItems(n.toArray(new String[0]), (d, w) -> {
+            String a = n.get(w);
+            if (a.startsWith("Add")) {
+                D.waAdd(this, r.chat, r.title);
+                K.publish(this);
+                refresh();
+            } else if (a.startsWith("Contact")) {
+                settings(r);
+            } else if (a.startsWith("Remove")) {
+                D.waRemove(this, r.wa.id);
+                K.publish(this);
+                refresh();
+            } else if (a.startsWith("Send")) {
+                testDialog(r);
+            } else {
+                details(r);
+            }
+        }).show();
+    }
+
+    void settings(R r) {
+        final D.Wa x = r.wa;
+        final String[] g = {x.group};
+        final List<D.Grp> gs = D.groups(this);
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(20), dp(8), dp(20), 0);
+        CheckBox cb = new CheckBox(this);
+        cb.setText("Also save the link as a clip");
+        cb.setChecked(x.save);
+        box.addView(cb);
+        TextView gt = new TextView(this);
+        gt.setTextSize(16);
+        gt.setPadding(dp(4), dp(12), dp(4), dp(12));
+        Runnable upd = () -> {
+            String nm = g[0].isEmpty() ? "Inbox" : D.nameIn(gs, g[0]);
+            gt.setText("Save to: " + (nm == null ? "Inbox" : nm) + " \u25BE");
+        };
+        upd.run();
+        gt.setOnClickListener(v -> {
+            List<String> n = new ArrayList<>();
+            n.add("Inbox");
+            for (D.Grp q : gs) n.add(q.name);
+            new AlertDialog.Builder(this).setItems(n.toArray(new String[0]), (d, w) -> {
+                g[0] = w == 0 ? "" : gs.get(w - 1).id;
+                upd.run();
+            }).show();
+        });
+        box.addView(gt);
+        EditText ph = new EditText(this);
+        ph.setHint("Phone for wa.me fallback (optional)");
+        ph.setInputType(InputType.TYPE_CLASS_PHONE);
+        ph.setSingleLine();
+        ph.setText(x.phone);
+        box.addView(ph);
+        new AlertDialog.Builder(this).setTitle(r.title).setView(box)
+                .setPositiveButton("Save", (d, w) -> {
+                    x.save = cb.isChecked();
+                    x.group = g[0];
+                    x.phone = D.clean(ph.getText().toString());
+                    D.waUpdate(this, x);
                     refresh();
                 })
                 .setNegativeButton("Cancel", null)
                 .show();
     }
 
-    void details(N.Cap k) {
-        new AlertDialog.Builder(this).setTitle(k.title)
-                .setMessage("id: " + k.id + "\ntag: " + k.tag + "\npackage: " + k.pkg
-                        + "\ncaptured: " + k.n + "x\ncanceled: " + k.dead)
-                .setPositiveButton("OK", null)
-                .setNegativeButton("Forget", (d, w) -> { N.CAP.remove(k.id); refresh(); })
+    void testDialog(R r) {
+        EditText e = new EditText(this);
+        e.setText("weeclip test");
+        e.setSelection(e.getText().length());
+        new AlertDialog.Builder(this).setTitle("Send to " + r.title).setView(e)
+                .setPositiveButton("Send", (d, w) -> {
+                    String res = N.send(getApplicationContext(), r.chat, e.getText().toString());
+                    Toast.makeText(this, res, Toast.LENGTH_LONG).show();
+                    refresh();
+                })
+                .setNegativeButton("Cancel", null)
                 .show();
+    }
+
+    void details(R r) {
+        StringBuilder s = new StringBuilder("chat: " + r.chat);
+        if (r.cap != null) s.append("\ntag: ").append(r.cap.tag).append("\npackage: ").append(r.cap.pkg)
+                .append("\ncaptured: ").append(r.cap.n).append("x\ncanceled: ").append(r.cap.dead);
+        if (r.wa != null) s.append("\nshortcut id: ").append(r.wa.id).append("\nsave clip: ").append(r.wa.save)
+                .append("\nphone: ").append(r.wa.phone.isEmpty() ? "-" : r.wa.phone);
+        AlertDialog.Builder d = new AlertDialog.Builder(this).setTitle(r.title).setMessage(s)
+                .setPositiveButton("OK", null);
+        if (r.cap != null) d.setNegativeButton("Forget action", (x, w) -> { N.CAP.remove(r.chat); refresh(); });
+        d.show();
     }
 
     void showLog() {

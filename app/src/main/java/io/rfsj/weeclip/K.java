@@ -15,7 +15,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-/** Publishes one sharing shortcut per group so they show up as "contacts" in the share sheet. */
+/** Publishes sharing shortcuts: one per group (save) and one per enabled WhatsApp contact (send). */
 final class K {
     static final String CAT = "io.rfsj.weeclip.category.CLIP";
 
@@ -23,21 +23,17 @@ final class K {
         try {
             ShortcutManager sm = c.getSystemService(ShortcutManager.class);
             if (sm == null) return;
-            List<D.Grp> g = D.groups(c);
-            int n = Math.min(g.size(), sm.getMaxShortcutCountPerActivity());
+            int max = sm.getMaxShortcutCountPerActivity();
             List<ShortcutInfo> l = new ArrayList<>();
-            for (int i = 0; i < n; i++) {
-                D.Grp x = g.get(i);
+            for (D.Grp x : D.groups(c)) {
+                if (l.size() >= max) break;
                 Intent it = new Intent(Intent.ACTION_MAIN).setClass(c, M.class).putExtra("g", x.id);
-                ShortcutInfo.Builder b = new ShortcutInfo.Builder(c, x.id)
-                        .setShortLabel(x.name)
-                        .setLongLabel(x.name)
-                        .setIcon(icon(x.name))
-                        .setIntent(it)
-                        .setCategories(Collections.singleton(CAT))
-                        .setRank(i);
-                if (Build.VERSION.SDK_INT >= 30) b.setLongLived(true);
-                l.add(b.build());
+                l.add(build(c, x.id, x.name, x.name, false, it, l.size()));
+            }
+            for (D.Wa x : D.was(c)) {
+                if (l.size() >= max) break;
+                Intent it = new Intent(Intent.ACTION_MAIN).setClass(c, W.class);
+                l.add(build(c, x.id, x.name, "WhatsApp: " + x.name, true, it, l.size()));
             }
             sm.setDynamicShortcuts(l);
         } catch (Exception e) {
@@ -45,10 +41,24 @@ final class K {
         }
     }
 
-    static Icon icon(String name) {
+    static ShortcutInfo build(Context c, String id, String label, String longLabel, boolean wa, Intent it, int rank) {
+        ShortcutInfo.Builder b = new ShortcutInfo.Builder(c, id)
+                .setShortLabel(label)
+                .setLongLabel(longLabel)
+                .setIcon(icon(label, wa))
+                .setIntent(it)
+                .setCategories(Collections.singleton(CAT))
+                .setRank(rank);
+        if (Build.VERSION.SDK_INT >= 30) b.setLongLived(true);
+        return b.build();
+    }
+
+    /** Letter on a coloured square; WhatsApp contacts are always green so they stand out from groups. */
+    static Icon icon(String name, boolean wa) {
         Bitmap b = Bitmap.createBitmap(216, 216, Bitmap.Config.ARGB_8888);
         Canvas cv = new Canvas(b);
-        cv.drawColor(Color.HSVToColor(new float[]{(name.hashCode() & 0x7fffffff) % 360, 0.55f, 0.75f}));
+        float hue = wa ? 142 : (name.hashCode() & 0x7fffffff) % 360;
+        cv.drawColor(Color.HSVToColor(new float[]{hue, 0.55f, wa ? 0.62f : 0.75f}));
         Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
         p.setColor(Color.WHITE);
         p.setTextAlign(Paint.Align.CENTER);

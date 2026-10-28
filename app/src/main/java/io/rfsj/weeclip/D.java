@@ -9,6 +9,9 @@ final class D {
     static final class Clip { String id, g, url, title = "", by = ""; long t; boolean ok; }
     static final class Grp { String id, name; }
 
+    /** A WhatsApp chat the user enabled as a share-sheet "contact". id is the shortcut id, chat the listener's chat key. */
+    static final class Wa { String id, chat, name, group = "", phone = ""; boolean save; }
+
     static final Object L = new Object();
     static volatile Runnable ui; // set by M while visible
 
@@ -167,6 +170,60 @@ final class D {
             List<Clip> k = load(c);
             for (Clip x : k) if (x.g.equals(id)) x.g = "";
             store(c, k);
+            List<Wa> w = was(c);
+            for (Wa x : w) if (x.group.equals(id)) x.group = "";
+            storeWas(c, w);
+        }
+    }
+
+    // ---- WhatsApp contacts (wa.tsv: id, chat, name, save, group, phone) ----
+    static List<Wa> was(Context c) {
+        synchronized (L) {
+            List<Wa> l = new ArrayList<>();
+            for (String[] p : rows(c, "wa.tsv", 6)) {
+                Wa w = new Wa();
+                w.id = p[0]; w.chat = p[1]; w.name = p[2]; w.save = p[3].equals("1"); w.group = p[4]; w.phone = p[5];
+                l.add(w);
+            }
+            return l;
+        }
+    }
+
+    static void storeWas(Context c, List<Wa> l) {
+        List<String> s = new ArrayList<>();
+        for (Wa w : l) s.add(w.id + "\t" + clean(w.chat) + "\t" + clean(w.name) + "\t" + (w.save ? "1" : "0") + "\t" + w.group + "\t" + clean(w.phone));
+        write(c, "wa.tsv", s);
+    }
+
+    static Wa waById(Context c, String id) {
+        for (Wa w : was(c)) if (w.id.equals(id)) return w;
+        return null;
+    }
+
+    static Wa waAdd(Context c, String chat, String name) {
+        synchronized (L) {
+            List<Wa> l = was(c);
+            for (Wa w : l) if (w.chat.equals(chat)) return w;
+            Wa w = new Wa();
+            w.id = "w" + Long.toString(System.currentTimeMillis(), 36);
+            w.chat = chat; w.name = clean(name);
+            l.add(w);
+            storeWas(c, l);
+            return w;
+        }
+    }
+
+    static void waUpdate(Context c, Wa n) {
+        synchronized (L) {
+            List<Wa> l = was(c);
+            for (Wa w : l) if (w.id.equals(n.id)) { w.save = n.save; w.group = n.group; w.phone = n.phone; storeWas(c, l); return; }
+        }
+    }
+
+    static void waRemove(Context c, String id) {
+        synchronized (L) {
+            List<Wa> l = was(c);
+            for (Iterator<Wa> i = l.iterator(); i.hasNext();) if (i.next().id.equals(id)) { i.remove(); storeWas(c, l); return; }
         }
     }
 }
