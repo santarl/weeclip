@@ -59,9 +59,9 @@ public class S extends Activity {
         N.Cap k = N.CAP.get(w.chat);
         if (k != null && !k.dead) {
             String r = N.send(c, w.chat, text);
-            return r.equals("sent") ? "Sent to " + w.name + tail : fallback(c, w, text, tail);
+            return r.equals("sent") ? "Sent to " + w.name + tail : noHandle(c, w, text, tail, true);
         }
-        if (N.ready) return fallback(c, w, text, tail);
+        if (N.ready) return noHandle(c, w, text, tail, true);
 
         // Listener not connected yet (cold start). Its callbacks run on the main thread,
         // so wait on a worker instead of blocking here.
@@ -72,27 +72,30 @@ public class S extends Activity {
             while (SystemClock.uptimeMillis() < end) {
                 N.Cap x = N.CAP.get(w.chat);
                 if (x != null && !x.dead) {
-                    String r = N.send(c, w.chat, text);
-                    m = r.equals("sent") ? "Sent to " + w.name + tail : "Couldn't send: " + r + tail;
+                    m = N.send(c, w.chat, text).equals("sent") ? "Sent to " + w.name + tail : null;
                     break;
                 }
                 if (N.ready) break;
                 SystemClock.sleep(100);
             }
-            final String msg = m != null ? m : "No reply action for " + w.name + " yet, wait for a new message from them" + tail;
+            final String msg = m != null ? m : noHandle(c, w, text, tail, false);
             h.post(() -> Toast.makeText(c, msg, Toast.LENGTH_LONG).show());
         }).start();
         return null;
     }
 
-    String fallback(Context c, D.Wa w, String text, String tail) {
+    /** No usable reply action: open WhatsApp if the contact is set up that way, else queue until they next message. */
+    String noHandle(Context c, D.Wa w, String text, String tail, boolean canOpen) {
         String p = w.phone.replaceAll("[^0-9]", "");
-        if (p.isEmpty()) return "No reply action for " + w.name + " yet, wait for a new message from them" + tail;
-        try {
-            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/" + p + "?text=" + Uri.encode(text))));
-            return "Opened WhatsApp (fallback)" + tail;
-        } catch (Exception e) {
-            return "Couldn't send to " + w.name + tail;
+        if (canOpen && w.open && !p.isEmpty()) {
+            try {
+                startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/" + p + "?text=" + Uri.encode(text))));
+                return "Opened WhatsApp" + tail;
+            } catch (Exception e) {
+                // fall through to the queue
+            }
         }
+        D.qAdd(c, w.chat, text);
+        return "Queued for " + w.name + ", sends when they next message you" + tail;
     }
 }

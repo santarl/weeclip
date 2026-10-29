@@ -32,7 +32,7 @@ public class W extends Activity {
     static final int BG = 0xFF000000, FG = 0xFFFFFFFF, DIM = 0xFF9E9E9E, WARN = 0xFFFFB74D;
     static final int MP = ViewGroup.LayoutParams.MATCH_PARENT, WC = ViewGroup.LayoutParams.WRAP_CONTENT;
 
-    static final class R { String chat, title; N.Cap cap; D.Wa wa; }
+    static final class R { String chat, title; N.Cap cap; D.Wa wa; int q; }
 
     List<R> items = new ArrayList<>();
     TextView status;
@@ -113,8 +113,9 @@ public class W extends Activity {
                             .append(" \u00B7 notification ").append(r.cap.live ? "visible" : "gone");
                 }
                 if (r.wa != null && r.wa.save) s.append(" \u00B7 also saves clip");
+                if (r.q > 0) s.append(" \u00B7 ").append(r.q).append(" queued");
                 tv[1].setText(s);
-                tv[1].setTextColor((r.cap == null && r.wa != null) || (r.cap != null && r.cap.dead) ? WARN : DIM);
+                tv[1].setTextColor(r.q > 0 || (r.cap == null && r.wa != null) || (r.cap != null && r.cap.dead) ? WARN : DIM);
                 return v;
             }
         };
@@ -166,6 +167,7 @@ public class W extends Activity {
             r.cap = k;
         }
         List<R> l = new ArrayList<>(m.values());
+        for (R r : l) r.q = D.qCount(this, r.chat);
         Collections.sort(l, (a, b) -> {
             if ((a.wa != null) != (b.wa != null)) return a.wa != null ? -1 : 1;
             return Long.compare(b.cap == null ? 0 : b.cap.t, a.cap == null ? 0 : a.cap.t);
@@ -189,6 +191,7 @@ public class W extends Activity {
             n.add("Remove from share sheet");
         }
         if (r.cap != null) n.add("Send test message");
+        if (r.q > 0) n.add("Queued messages (" + r.q + ")\u2026");
         n.add("Details");
         new AlertDialog.Builder(this).setTitle(r.title).setItems(n.toArray(new String[0]), (d, w) -> {
             String a = n.get(w);
@@ -206,6 +209,8 @@ public class W extends Activity {
                 refresh();
             } else if (a.startsWith("Send")) {
                 testDialog(r);
+            } else if (a.startsWith("Queued")) {
+                queued(r);
             } else {
                 details(r);
             }
@@ -223,6 +228,10 @@ public class W extends Activity {
         cb.setText("Also save the link as a clip");
         cb.setChecked(x.save);
         box.addView(cb);
+        CheckBox ob = new CheckBox(this);
+        ob.setText("With no reply action, open WhatsApp now instead of waiting for their next message (needs the phone number below)");
+        ob.setChecked(x.open);
+        box.addView(ob);
         TextView gt = new TextView(this);
         gt.setTextSize(16);
         gt.setPadding(dp(4), dp(12), dp(4), dp(12));
@@ -242,7 +251,7 @@ public class W extends Activity {
         });
         box.addView(gt);
         EditText ph = new EditText(this);
-        ph.setHint("Phone for wa.me fallback (optional)");
+        ph.setHint("Phone number (only for the option above)");
         ph.setInputType(InputType.TYPE_CLASS_PHONE);
         ph.setSingleLine();
         ph.setText(x.phone);
@@ -250,12 +259,23 @@ public class W extends Activity {
         new AlertDialog.Builder(this).setTitle(r.title).setView(box)
                 .setPositiveButton("Save", (d, w) -> {
                     x.save = cb.isChecked();
+                    x.open = ob.isChecked();
                     x.group = g[0];
                     x.phone = D.clean(ph.getText().toString());
                     D.waUpdate(this, x);
                     refresh();
                 })
                 .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    void queued(R r) {
+        StringBuilder s = new StringBuilder();
+        long now = System.currentTimeMillis();
+        for (D.Q x : D.qFor(this, r.chat)) s.append(N.ago(now - x.t)).append(" ago \u00B7 ").append(x.text.replace('\n', ' ')).append("\n\n");
+        new AlertDialog.Builder(this).setTitle("Queued for " + r.title).setMessage(s.toString().trim())
+                .setPositiveButton("Close", null)
+                .setNegativeButton("Cancel all", (d, w) -> { D.qClear(this, r.chat); refresh(); })
                 .show();
     }
 

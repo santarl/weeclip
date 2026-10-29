@@ -8,13 +8,20 @@ import android.content.Context;
 import android.content.Intent;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.SystemClock;
 import android.service.notification.NotificationListenerService;
 import android.service.notification.StatusBarNotification;
+import android.widget.Toast;
 import java.text.SimpleDateFormat;
 import java.util.Date;
+import java.util.HashSet;
 import java.util.LinkedList;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -52,7 +59,7 @@ public class N extends NotificationListenerService {
         log("listener connected");
         try {
             StatusBarNotification[] a = getActiveNotifications();
-            if (a != null) for (StatusBarNotification s : a) take(s);
+            if (a != null) for (StatusBarNotification s : a) take(this, s);
         } catch (Exception e) {
             log("initial scan failed: " + e);
         }
@@ -68,7 +75,7 @@ public class N extends NotificationListenerService {
         try { requestRebind(new ComponentName(this, N.class)); } catch (Exception e) { log("rebind failed: " + e); }
     }
 
-    @Override public void onNotificationPosted(StatusBarNotification s) { take(s); }
+    @Override public void onNotificationPosted(StatusBarNotification s) { take(this, s); }
 
     @Override public void onNotificationRemoved(StatusBarNotification s) {
         Cap k = CAP.get(idOf(s));
@@ -92,7 +99,7 @@ public class N extends NotificationListenerService {
         return s.getPackageName() + "|" + k;
     }
 
-    static void take(StatusBarNotification s) {
+    static void take(Context c, StatusBarNotification s) {
         if (s == null || !wa(s.getPackageName())) return;
         Notification n = s.getNotification();
         if ((n.flags & Notification.FLAG_GROUP_SUMMARY) != 0 || n.actions == null) return;
@@ -115,6 +122,64 @@ public class N extends NotificationListenerService {
         k.dead = false;
         k.n++;
         log("captured " + k.title + " (#" + k.n + ")");
+        flush(c, id);
+    }
+
+    static final Set<String> flushing = new HashSet<>();
+
+    /** "1h 5m", "12m", "3d 2h". */
+    static String ago(long ms) {
+        long s = ms / 1000;
+        if (s < 60) return s + "s";
+        long m = s / 60;
+        if (m < 60) return m + "m";
+        long h = m / 60;
+        m %= 60;
+        if (h < 24) return h + "h" + (m > 0 ? " " + m + "m" : "");
+        long d = h / 24;
+        h %= 24;
+        return d + "d" + (h > 0 ? " " + h + "h" : "");
+    }
+
+    /** The queued text plus an italic note (WhatsApp formatting) if it waited a while. The link stays plain text. */
+    static String withNote(D.Q q) {
+        long age = System.currentTimeMillis() - q.t;
+        return age < 60000 ? q.text : q.text + "\n_shared " + ago(age) + " ago_";
+    }
+
+    /** A fresh action just arrived for this chat: send whatever was waiting for it, oldest first. */
+    static void flush(Context c, String chat) {
+        final Context a = c.getApplicationContext();
+        final List<D.Q> q = D.qFor(a, chat);
+        if (q.isEmpty()) return;
+        D.Wa who = null;
+        for (D.Wa w : D.was(a)) if (w.chat.equals(chat)) who = w;
+        if (who == null) { D.qClear(a, chat); return; } // not an enabled contact: never send
+        synchronized (flushing) { if (!flushing.add(chat)) return; }
+        final String name = who.name;
+        new Thread(() -> {
+            int sent = 0;
+            try {
+                for (D.Q x : q) {
+                    Cap k = CAP.get(chat);
+                    if (k == null || k.dead) break;
+                    if (!"sent".equals(send(a, chat, withNote(x)))) break;
+                    D.qRemove(a, x.id);
+                    sent++;
+                    SystemClock.sleep(800);
+                }
+            } catch (Throwable t) {
+                log("queue flush error: " + t);
+            } finally {
+                synchronized (flushing) { flushing.remove(chat); }
+            }
+            final String m = sent > 0 ? "Sent " + sent + " queued to " + name : null;
+            if (m != null) new Handler(Looper.getMainLooper()).post(() -> {
+                Toast.makeText(a, m, Toast.LENGTH_LONG).show();
+                Runnable r = ui;
+                if (r != null) r.run();
+            });
+        }).start();
     }
 
     /** Replays the cached Reply action. @return a short human-readable result. */
